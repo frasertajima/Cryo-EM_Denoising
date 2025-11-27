@@ -1,0 +1,305 @@
+!================================================================
+! Simple 3-Layer CNN for Cryo-EM Denoising Pipeline Test
+!================================================================
+! Minimal CNN architecture to verify end-to-end training pipeline:
+!   - Data loading from 259GB streaming dataset
+!   - Forward pass through convolution layers
+!   - Loss computation (MSE)
+!   - Backward pass and gradient updates
+!   - Training convergence
+!
+! Architecture:
+!   Input:  (batch, 1, 1024, 1024)
+!   Conv1:  1 -> 16 channels, 3×3, ReLU
+!   Conv2:  16 -> 16 channels, 3×3, ReLU
+!   Conv3:  16 -> 1 channel, 3×3 (no activation)
+!   Output: (batch, 1, 1024, 1024)
+!
+! Author: v28f-a Simple CNN Team
+! Date: 2025-11-25
+!================================================================
+module simple_cnn_module
+    use cudafor
+    use iso_c_binding
+    use conv2d_cudnn
+    implicit none
+
+    !================================================================
+    ! Architecture Parameters
+    !================================================================
+    integer, parameter :: INPUT_CHANNELS = 1
+    integer, parameter :: HIDDEN_CHANNELS = 16
+    integer, parameter :: OUTPUT_CHANNELS = 1
+    integer, parameter :: IMAGE_SIZE = 1024
+
+    !================================================================
+    ! Simple CNN Model
+    !================================================================
+    type :: simple_cnn_t
+        ! Three conv layers
+        type(conv2d_layer_t) :: conv1  ! 1 -> 16 channels
+        type(conv2d_layer_t) :: conv2  ! 16 -> 16 channels
+        type(conv2d_layer_t) :: conv3  ! 16 -> 1 channel
+
+        ! Intermediate activations
+        real(4), device, allocatable :: conv1_out(:,:,:,:)
+        real(4), device, allocatable :: conv2_out(:,:,:,:)
+        real(4), device, allocatable :: output(:,:,:,:)
+
+        ! Gradients for backprop
+        real(4), device, allocatable :: grad_output(:,:,:,:)
+        real(4), device, allocatable :: grad_conv2(:,:,:,:)
+        real(4), device, allocatable :: grad_conv1(:,:,:,:)
+
+        integer :: batch_size
+        type(c_ptr) :: cudnn_handle
+        logical :: initialized = .false.
+    end type simple_cnn_t
+
+    public :: simple_cnn_t
+    public :: cnn_init, cnn_forward, cnn_backward, cnn_update, cnn_cleanup
+    public :: cnn_compute_loss
+
+contains
+
+    !================================================================
+    ! Initialize Simple CNN
+    !================================================================
+    subroutine cnn_init(model, handle, batch_size)
+        type(simple_cnn_t), intent(inout) :: model
+        type(c_ptr), intent(in) :: handle
+        integer, intent(in) :: batch_size
+
+        integer :: istat
+
+        print *, ""
+        print *, "=========================================="
+        print *, "  Initializing Simple CNN"
+        print *, "=========================================="
+
+        model%batch_size = batch_size
+        model%cudnn_handle = handle
+
+        ! Initialize conv layers (all 3×3 kernels, padding=1 to preserve size)
+        ! Signature: (layer, handle, in_ch, out_ch, kernel, padding, stride, batch, h, w, use_relu)
+        call conv2d_init(model%conv1, handle, &
+                        INPUT_CHANNELS, HIDDEN_CHANNELS, 3, &
+                        1, 1, batch_size, IMAGE_SIZE, IMAGE_SIZE, .true.)
+
+        call conv2d_init(model%conv2, handle, &
+                        HIDDEN_CHANNELS, HIDDEN_CHANNELS, 3, &
+                        1, 1, batch_size, IMAGE_SIZE, IMAGE_SIZE, .true.)
+
+        call conv2d_init(model%conv3, handle, &
+                        HIDDEN_CHANNELS, OUTPUT_CHANNELS, 3, &
+                        1, 1, batch_size, IMAGE_SIZE, IMAGE_SIZE, .false.)
+
+        ! Allocate activations
+        allocate(model%conv1_out(HIDDEN_CHANNELS, IMAGE_SIZE, IMAGE_SIZE, batch_size), stat=istat)
+        allocate(model%conv2_out(HIDDEN_CHANNELS, IMAGE_SIZE, IMAGE_SIZE, batch_size), stat=istat)
+        allocate(model%output(OUTPUT_CHANNELS, IMAGE_SIZE, IMAGE_SIZE, batch_size), stat=istat)
+
+        ! Allocate gradients
+        allocate(model%grad_output(OUTPUT_CHANNELS, IMAGE_SIZE, IMAGE_SIZE, batch_size), stat=istat)
+        allocate(model%grad_conv2(HIDDEN_CHANNELS, IMAGE_SIZE, IMAGE_SIZE, batch_size), stat=istat)
+        allocate(model%grad_conv1(HIDDEN_CHANNELS, IMAGE_SIZE, IMAGE_SIZE, batch_size), stat=istat)
+
+        if (istat /= 0) then
+            print *, "ERROR: Failed to allocate CNN tensors"
+            stop 1
+        endif
+
+        model%initialized = .true.
+
+        ! Print model info
+        print '(A, I4)', "  Batch size:       ", batch_size
+        print '(A, I4, A, I4)', "  Image size:       ", IMAGE_SIZE, " × ", IMAGE_SIZE
+        print *, ""
+        print *, "  Architecture:"
+        print '(A, I4, A)', "    Conv1:  1 ->  ", HIDDEN_CHANNELS, " channels (3×3, ReLU)"
+        print '(A, I4, A, I4, A)', "    Conv2: ", HIDDEN_CHANNELS, " -> ", HIDDEN_CHANNELS, " channels (3×3, ReLU)"
+        print '(A, I4, A)', "    Conv3: ", HIDDEN_CHANNELS, " ->  1 channel (3×3)"
+        print *, ""
+
+        call cnn_print_memory_usage(model)
+
+        print *, "=========================================="
+        print *, ""
+
+    end subroutine cnn_init
+
+    !================================================================
+    ! Forward Pass
+    !================================================================
+    subroutine cnn_forward(model, input, output)
+        type(simple_cnn_t), intent(inout) :: model
+        real(4), device, intent(in) :: input(:,:,:,:)
+        real(4), device, intent(out) :: output(:,:,:,:)
+
+        ! Conv1 + ReLU (ReLU configured at init)
+        call conv2d_forward(model%conv1, input, model%conv1_out)
+
+        ! Conv2 + ReLU
+        call conv2d_forward(model%conv2, model%conv1_out, model%conv2_out)
+
+        ! Conv3 (no activation)
+        call conv2d_forward(model%conv3, model%conv2_out, model%output)
+
+        ! Copy to output
+        output = model%output
+
+    end subroutine cnn_forward
+
+    !================================================================
+    ! Compute MSE Loss
+    !================================================================
+    function cnn_compute_loss(model, prediction, target) result(loss)
+        type(simple_cnn_t), intent(in) :: model
+        real(4), device, intent(in) :: prediction(:,:,:,:)
+        real(4), device, intent(in) :: target(:,:,:,:)
+        real(4) :: loss
+
+        real(4), device, allocatable :: diff(:,:,:,:)
+        real(4) :: sum_sq
+        integer :: n, j, k
+
+        ! Allocate and compute squared difference
+        allocate(diff(OUTPUT_CHANNELS, IMAGE_SIZE, IMAGE_SIZE, model%batch_size))
+        !$cuf kernel do <<<*,*>>>
+        do n = 1, model%batch_size
+            do k = 1, IMAGE_SIZE
+                do j = 1, IMAGE_SIZE
+                    diff(1, j, k, n) = prediction(1, j, k, n) - target(1, j, k, n)
+                end do
+            end do
+        end do
+
+        ! Sum of squares
+        sum_sq = sum(diff * diff)
+
+        ! Mean squared error
+        n = OUTPUT_CHANNELS * IMAGE_SIZE * IMAGE_SIZE * model%batch_size
+        loss = sum_sq / real(n)
+
+        deallocate(diff)
+
+    end function cnn_compute_loss
+
+    !================================================================
+    ! Backward Pass
+    !================================================================
+    subroutine cnn_backward(model, input, target)
+        type(simple_cnn_t), intent(inout) :: model
+        real(4), device, intent(in) :: input(:,:,:,:)
+        real(4), device, intent(in) :: target(:,:,:,:)
+
+        integer :: n, i, j, k
+        real(4) :: scale
+        real(4) :: diff_val
+
+        ! Compute gradient of loss w.r.t. output: dL/dy = 2/n * (y - target)
+        n = OUTPUT_CHANNELS * IMAGE_SIZE * IMAGE_SIZE * model%batch_size
+        scale = 2.0 / real(n)
+
+        ! Compute gradient: first compute difference, then scale
+        ! Split into two steps to avoid device-resident object issues
+        do i = 1, model%batch_size
+            do k = 1, IMAGE_SIZE
+                do j = 1, IMAGE_SIZE
+                    model%grad_output(1, j, k, i) = model%output(1, j, k, i)
+                end do
+            end do
+        end do
+
+        do i = 1, model%batch_size
+            do k = 1, IMAGE_SIZE
+                do j = 1, IMAGE_SIZE
+                    model%grad_output(1, j, k, i) = scale * (model%grad_output(1, j, k, i) - target(1, j, k, i))
+                end do
+            end do
+        end do
+
+        ! Backprop through conv3 (no ReLU)
+        ! Signature: (layer, input, output, grad_output, grad_input, compute_grad_input)
+        call conv2d_backward(model%conv3, model%conv2_out, model%output, &
+                            model%grad_output, model%grad_conv2, .true.)
+
+        ! Backprop through conv2 + ReLU
+        call conv2d_backward(model%conv2, model%conv1_out, model%conv2_out, &
+                            model%grad_conv2, model%grad_conv1, .true.)
+
+        ! Backprop through conv1 + ReLU (don't need input gradient)
+        call conv2d_backward(model%conv1, input, model%conv1_out, &
+                            model%grad_conv1, model%grad_conv1, .false.)
+
+    end subroutine cnn_backward
+
+    !================================================================
+    ! Update Weights (Simple SGD)
+    !================================================================
+    subroutine cnn_update(model, learning_rate)
+        type(simple_cnn_t), intent(inout) :: model
+        real(4), intent(in) :: learning_rate
+
+        call conv2d_update_weights(model%conv1, learning_rate)
+        call conv2d_update_weights(model%conv2, learning_rate)
+        call conv2d_update_weights(model%conv3, learning_rate)
+
+    end subroutine cnn_update
+
+    !================================================================
+    ! Print Memory Usage
+    !================================================================
+    subroutine cnn_print_memory_usage(model)
+        type(simple_cnn_t), intent(in) :: model
+        real(8) :: activations_mb, gradients_mb, weights_mb, total_mb
+
+        ! Activations: conv1_out + conv2_out + output
+        activations_mb = (HIDDEN_CHANNELS * IMAGE_SIZE * IMAGE_SIZE * model%batch_size * 2 + &
+                         OUTPUT_CHANNELS * IMAGE_SIZE * IMAGE_SIZE * model%batch_size) * 4.0 / (1024.0**2)
+
+        ! Gradients: grad_output + grad_conv2 + grad_conv1
+        gradients_mb = (OUTPUT_CHANNELS * IMAGE_SIZE * IMAGE_SIZE * model%batch_size + &
+                       HIDDEN_CHANNELS * IMAGE_SIZE * IMAGE_SIZE * model%batch_size * 2) * 4.0 / (1024.0**2)
+
+        ! Weights: very small compared to activations
+        weights_mb = (INPUT_CHANNELS * HIDDEN_CHANNELS * 9 + &
+                     HIDDEN_CHANNELS * HIDDEN_CHANNELS * 9 + &
+                     HIDDEN_CHANNELS * OUTPUT_CHANNELS * 9) * 4.0 / (1024.0**2)
+
+        total_mb = activations_mb + gradients_mb + weights_mb
+
+        print *, "  Memory usage (per batch):"
+        print '(A, F8.2, A)', "    Activations: ", activations_mb, " MB"
+        print '(A, F8.2, A)', "    Gradients:   ", gradients_mb, " MB"
+        print '(A, F8.2, A)', "    Weights:     ", weights_mb, " MB"
+        print '(A, F8.2, A)', "    Total:       ", total_mb, " MB"
+
+    end subroutine cnn_print_memory_usage
+
+    !================================================================
+    ! Cleanup
+    !================================================================
+    subroutine cnn_cleanup(model)
+        type(simple_cnn_t), intent(inout) :: model
+
+        if (.not. model%initialized) return
+
+        call conv2d_cleanup(model%conv1)
+        call conv2d_cleanup(model%conv2)
+        call conv2d_cleanup(model%conv3)
+
+        if (allocated(model%conv1_out)) deallocate(model%conv1_out)
+        if (allocated(model%conv2_out)) deallocate(model%conv2_out)
+        if (allocated(model%output)) deallocate(model%output)
+        if (allocated(model%grad_output)) deallocate(model%grad_output)
+        if (allocated(model%grad_conv2)) deallocate(model%grad_conv2)
+        if (allocated(model%grad_conv1)) deallocate(model%grad_conv1)
+
+        model%initialized = .false.
+
+        print *, "Simple CNN cleaned up"
+
+    end subroutine cnn_cleanup
+
+end module simple_cnn_module

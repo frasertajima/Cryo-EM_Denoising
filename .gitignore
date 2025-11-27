@@ -1,0 +1,250 @@
+# ============================================================
+# Cryo-EM Denoising .gitignore
+# ============================================================
+# Excludes large binary files while keeping code & documentation
+# ============================================================
+
+# ============================================================
+# LARGE DATA FILES (Primary exclusions - CRITICAL!)
+# ============================================================
+
+# Binary data files (117GB+ - DO NOT COMMIT!)
+data/cryo_data_streaming/*.bin
+data/*.bin
+*.bin
+
+# MRC files (original microscopy data)
+data/**/*.mrc
+*.mrc
+
+# Large checkpoint files (model weights - too large for git)
+saved_models/**/*.bin
+v28f_e_final_training/saved_models/**/*.bin
+
+# Compressed data archives
+*.tar.gz
+*.zip
+*.7z
+data/**/*.tar.gz
+
+# ============================================================
+# COMPILED OUTPUTS (Can be regenerated)
+# ============================================================
+
+# Fortran compiled files
+*.o
+*.mod
+*.a
+*.so
+*.dylib
+*.exe
+cryo_train
+cryo_train_unet
+test_*
+!test_*.cuf
+!test_*.f90
+!test_*.py
+
+# CUDA compiled
+*.ptx
+*.cubin
+*.fatbin
+
+# ============================================================
+# BUILD ARTIFACTS
+# ============================================================
+
+# Build directories
+build/
+dist/
+*.egg-info/
+
+# CMake
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+
+# ============================================================
+# PYTHON
+# ============================================================
+
+# Byte-compiled / optimized
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+*.pyo
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# Python package management
+pip-log.txt
+pip-delete-this-directory.txt
+*.egg
+.eggs/
+
+# ============================================================
+# IDE / EDITOR
+# ============================================================
+
+# VSCode
+.vscode/
+*.code-workspace
+
+# PyCharm
+.idea/
+*.iml
+
+# Vim
+*.swp
+*.swo
+*~
+.*.swp
+
+# Emacs
+*~
+\#*\#
+.\#*
+
+# ============================================================
+# OS FILES
+# ============================================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Linux
+.directory
+.Trash-*
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ============================================================
+# LOGS AND TEMPORARY FILES
+# ============================================================
+
+# Log files
+*.log
+logs/
+*.out
+*.err
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+*.bak
+*.backup
+
+# Training output logs
+training_output*.log
+train_*.log
+
+# ============================================================
+# VISUALIZATION OUTPUTS (Can be regenerated)
+# ============================================================
+
+# Generated plots (large)
+*.png
+!visualization_samples.png
+!raw_mrc_comparison.png
+
+# Generated visualizations
+visualizations/
+plots/
+
+# ============================================================
+# SPECIFIC TO THIS PROJECT
+# ============================================================
+
+# Large preprocessed data directories
+data/cryo_data_streaming/
+data/empiar/
+data/raw/
+
+# Test data (if large)
+data/test_patches/
+
+# Scratch/experimental directories
+scratch/
+experiments/
+old/
+
+# Downloaded datasets
+downloads/
+
+# Model checkpoints (keep only documentation)
+saved_models/
+checkpoints/
+*.ckpt
+*.pth
+*.pt
+*.h5
+
+# ============================================================
+# KEEP THESE (Override previous patterns if needed)
+# ============================================================
+
+# Keep small example data (if any)
+!data/examples/*.bin
+
+# Keep documentation images
+!docs/*.png
+!*.md
+
+# Keep README images/diagrams
+!README*.png
+!architecture*.png
+
+# Keep test scripts
+!tests/test_*.py
+!tests/test_*.f90
+
+# Keep small reference data
+!reference_data/*.bin
+
+# ============================================================
+# GIT-SPECIFIC
+# ============================================================
+
+# Git merge files
+*.orig
+*.BACKUP.*
+*.BASE.*
+*.LOCAL.*
+*.REMOTE.*
+
+# ============================================================
+# DOCUMENTATION TO INCLUDE
+# ============================================================
+# The following are explicitly INCLUDED (not ignored):
+#
+# ✓ All .md files (documentation)
+# ✓ All .cuf files (Fortran/CUDA source)
+# ✓ All .f90 files (Fortran source)
+# ✓ All .py files (Python scripts)
+# ✓ All .sh files (shell scripts)
+# ✓ All .ipynb files (Jupyter notebooks)
+# ✓ compile.sh scripts
+# ✓ README files
+# ✓ Small PNG files for documentation
+# ✓ Configuration files
+# ============================================================
+
+# End of .gitignore

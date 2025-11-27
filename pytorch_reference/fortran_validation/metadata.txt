@@ -1,0 +1,22 @@
+PyTorch Model Export for Fortran Validation
+======================================================================
+
+Batch size: 2
+Image size: 1024 x 1024
+Forward loss: 0.3283227086
+Random seed: 42
+
+File Format: All binary files are float32, column-major (Fortran order)
+
+Layout Conversion Applied:
+  - Conv weights: (Out,In,H,W) -> (H,W,In,Out) with spatial flip
+  - Tensors: (N,C,H,W) -> (C,H,W,N) with spatial flip
+  - All arrays stored in Fortran column-major order
+
+Weight shapes:
+  conv1.weight: torch.Size([16, 1, 3, 3])
+  conv1.bias: torch.Size([16])
+  conv2.weight: torch.Size([16, 16, 3, 3])
+  conv2.bias: torch.Size([16])
+  conv3.weight: torch.Size([1, 16, 3, 3])
+  conv3.bias: torch.Size([1])

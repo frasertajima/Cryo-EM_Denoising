@@ -1,4 +1,0 @@
-batch_size=2
-image_size=128
-learning_rate=0.001
-loss=1.1394708156585693
